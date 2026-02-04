@@ -105,10 +105,27 @@ ESCAPED_MESSAGE=$(echo "$MESSAGE" | jq -Rs .)
 
 echo "Sending notification via $CHANNEL to $TO..." >&2
 
+# Security: pass authorization header via temp file to hide token from process list
+# Set restrictive umask for temp file creation
+OLD_UMASK=$(umask)
+umask 077
+HDR_FILE="$(mktemp)"
+umask "$OLD_UMASK"
+
+# Write auth header to temp file (not visible in ps/proc)
+printf 'Authorization: Bearer %s\n' "$WEBHOOK_TOKEN" > "$HDR_FILE"
+
+# Cleanup function to remove temp file
+cleanup_hdr() {
+  rm -f "$HDR_FILE"
+}
+trap cleanup_hdr EXIT
+
 # Send notification with error detection
 # Use -f to fail on HTTP errors, -s for silent, -S to show errors
+# Use -H @file to read header from file (hides token from process list)
 if curl -fsS -X POST "$WEBHOOK_URL" \
-  -H "Authorization: Bearer $WEBHOOK_TOKEN" \
+  -H @"$HDR_FILE" \
   -H "Content-Type: application/json" \
   -d "{
     \"message\": $ESCAPED_MESSAGE,

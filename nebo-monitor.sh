@@ -19,11 +19,9 @@ REMINDER_INTERVAL="${REMINDER_INTERVAL:-300}"
 
 # File paths (use secure temp directory creation)
 STATE_DIR="${NEBO_MONITOR_STATE_DIR:-/tmp/nebo-orchestrator}"
-# Create state dir with secure permissions if it doesn't exist
-if [ ! -d "$STATE_DIR" ]; then
-    mkdir -p "$STATE_DIR"
-    chmod 700 "$STATE_DIR"
-fi
+# Security: enforce permissions every run (not just on first creation)
+# install -d creates dir if needed AND enforces mode even if dir exists
+install -d -m 700 "$STATE_DIR"
 LOG_FILE="$STATE_DIR/nebo-monitor.log"
 PID_FILE="$STATE_DIR/nebo-monitor.pid"
 NOTIFY_STATE_DIR="$STATE_DIR/notify-state"
@@ -59,8 +57,10 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# Ensure state directories exist
-mkdir -p "$STATE_DIR" "$NOTIFY_STATE_DIR"
+# Security: ensure state directories exist with proper permissions
+install -d -m 700 "$STATE_DIR" "$NOTIFY_STATE_DIR"
+# Security: ensure log file has restrictive permissions
+touch "$LOG_FILE" && chmod 600 "$LOG_FILE"
 
 # Logging function
 log() {

@@ -1,7 +1,7 @@
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
-const { execSync } = require('child_process');
+const { execSync, execFileSync } = require('child_process');
 const path = require('path');
 
 const app = express();
@@ -13,6 +13,19 @@ const io = new Server(server, {
 const PORT = process.env.PORT || 3333;
 const POLL_INTERVAL = 500; // Poll every 500ms for smooth updates
 const DASHBOARD_TOKEN = process.env.DASHBOARD_TOKEN || readDashboardToken();
+
+// Input validation functions (security: prevent command injection)
+function assertSafeSessionName(name) {
+  if (typeof name !== 'string' || !/^[a-zA-Z0-9_-]+$/.test(name)) {
+    throw new Error('Invalid session name: must contain only alphanumeric, underscore, or hyphen');
+  }
+}
+
+function assertSafeAction(action) {
+  if (!['approve', 'always', 'deny'].includes(action)) {
+    throw new Error('Invalid action: must be approve, always, or deny');
+  }
+}
 
 // Read dashboard token from OpenClaw config or generate one
 function readDashboardToken() {
@@ -37,26 +50,29 @@ function readDashboardToken() {
 
 // Authentication middleware
 function requireAuth(req, res, next) {
-  const token = req.headers['x-dashboard-token'] || req.query.token;
-  
+  // Security: only accept token via header, not query params (prevents token leakage in logs/referrers)
+  const token = req.headers['x-dashboard-token'];
+
   if (!token) {
-    return res.status(401).json({ error: 'Authentication required. Provide x-dashboard-token header or ?token= query param.' });
+    return res.status(401).json({ error: 'Authentication required. Provide x-dashboard-token header.' });
   }
-  
+
   if (token !== DASHBOARD_TOKEN) {
     return res.status(403).json({ error: 'Invalid token' });
   }
-  
+
   next();
 }
 
 // Log startup info
 console.log('[Dashboard] Starting on port', PORT);
+// Security: refuse to start with insecure default token
 if (DASHBOARD_TOKEN === 'INSECURE_DEFAULT_TOKEN') {
-  console.error('[Dashboard] ⚠️  SECURITY WARNING: Using default token. Set DASHBOARD_TOKEN env var!');
-} else {
-  console.log('[Dashboard] ✓ Authentication enabled (token loaded from config)');
+  console.error('[Dashboard] FATAL: Refusing to start without proper authentication.');
+  console.error('[Dashboard] Set DASHBOARD_TOKEN environment variable or configure hooks.token in OpenClaw config.');
+  process.exit(1);
 }
+console.log('[Dashboard] ✓ Authentication enabled (token loaded from config)');
 
 // Serve static files (auth required)
 app.use(requireAuth);
@@ -151,16 +167,17 @@ function pollSessions() {
 
 // Socket.IO authentication middleware
 io.use((socket, next) => {
-  const token = socket.handshake.auth.token || socket.handshake.query.token;
-  
+  // Security: only accept token via auth payload, not query params (prevents token leakage)
+  const token = socket.handshake.auth.token;
+
   if (!token) {
-    return next(new Error('Authentication required. Provide token in auth or query.'));
+    return next(new Error('Authentication required. Provide token in auth payload.'));
   }
-  
+
   if (token !== DASHBOARD_TOKEN) {
     return next(new Error('Invalid token'));
   }
-  
+
   next();
 });
 
@@ -194,8 +211,12 @@ io.on('connection', (socket) => {
     const { name, action } = data;
     console.log(`[✓] Approval action for ${name}: ${action}`);
     try {
+      // Security: validate inputs before execution
+      assertSafeAction(action);
+      assertSafeSessionName(name);
       const scriptPath = path.join(__dirname, '../lib/handle-approval.sh');
-      execSync(`"${scriptPath}" ${action} "${name}"`, { timeout: 5000 });
+      // Security: use execFileSync (no shell) to prevent command injection
+      execFileSync(scriptPath, [action, name], { timeout: 5000 });
       socket.emit('approval:result', { name, success: true, action });
     } catch (err) {
       console.error(`[!] Approval failed for ${name}:`, err.message);
@@ -208,8 +229,11 @@ io.on('connection', (socket) => {
     const { name, text } = data;
     console.log(`[>] Sending text to ${name}: ${text.substring(0, 50)}...`);
     try {
-      execSync(`tmux send-keys -t "${name}" -l -- "${text.replace(/"/g, '\\"')}"`, { timeout: 5000 });
-      execSync(`tmux send-keys -t "${name}" Enter`, { timeout: 5000 });
+      // Security: validate session name before execution
+      assertSafeSessionName(name);
+      // Security: use execFileSync (no shell) to prevent command injection
+      execFileSync('tmux', ['send-keys', '-t', name, '-l', '--', text], { timeout: 5000 });
+      execFileSync('tmux', ['send-keys', '-t', name, 'Enter'], { timeout: 5000 });
       socket.emit('send:result', { name, success: true });
     } catch (err) {
       console.error(`[!] Send failed for ${name}:`, err.message);
