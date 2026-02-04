@@ -1,0 +1,734 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Nebo Dev Ops</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <script src="/socket.io/socket.io.js"></script>
+  <style>
+    :root {
+      --background: hsl(222.2 84% 4.9%);
+      --foreground: hsl(210 40% 98%);
+      --card: hsl(222.2 84% 4.9%);
+      --card-foreground: hsl(210 40% 98%);
+      --border: hsl(217.2 32.6% 17.5%);
+      --input: hsl(217.2 32.6% 17.5%);
+      --primary: hsl(210 40% 98%);
+      --primary-foreground: hsl(222.2 47.4% 11.2%);
+      --secondary: hsl(217.2 32.6% 17.5%);
+      --muted: hsl(217.2 32.6% 17.5%);
+      --muted-foreground: hsl(215 20.2% 65.1%);
+      --accent-green: hsl(142 76% 36%);
+      --accent-yellow: hsl(48 96% 53%);
+      --accent-red: hsl(0 84% 60%);
+      --accent-blue: hsl(217 91% 60%);
+      --radius: 0.5rem;
+    }
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: var(--background);
+      color: var(--foreground);
+      min-height: 100vh;
+    }
+
+    /* Header */
+    header {
+      background: var(--background);
+      border-bottom: 1px solid var(--border);
+      padding: 0.875rem 1.5rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+
+    .logo-icon {
+      width: 36px;
+      height: 36px;
+      background: var(--accent-blue);
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.125rem;
+    }
+
+    .logo h1 {
+      font-size: 1.125rem;
+      font-weight: 600;
+      color: var(--foreground);
+    }
+
+    .status-bar {
+      display: flex;
+      gap: 1.5rem;
+      align-items: center;
+    }
+
+    .status-item {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.875rem;
+      color: var(--muted-foreground);
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--accent-green);
+    }
+
+    .status-dot.connected {
+      animation: pulse-green 2s infinite;
+    }
+
+    @keyframes pulse-green {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+
+    .session-count {
+      font-size: 1.25rem;
+      font-weight: 600;
+      color: var(--foreground);
+    }
+
+    /* Main container */
+    main {
+      padding: 1.5rem;
+      max-width: 1600px;
+      margin: 0 auto;
+    }
+
+    .sessions-grid {
+      display: grid;
+      gap: 1rem;
+      grid-template-columns: repeat(auto-fit, minmax(550px, 1fr));
+    }
+
+    /* Terminal card */
+    .terminal-card {
+      background: var(--card);
+      border-radius: var(--radius);
+      border: 1px solid var(--border);
+      overflow: hidden;
+      transition: border-color 0.2s;
+    }
+
+    .terminal-card:hover {
+      border-color: var(--muted-foreground);
+    }
+
+    .terminal-card.waiting {
+      border-color: var(--accent-yellow);
+    }
+
+    .terminal-header {
+      background: var(--secondary);
+      padding: 0.75rem 1rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .terminal-title {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+
+    .terminal-dots {
+      display: flex;
+      gap: 6px;
+    }
+
+    .terminal-dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+    }
+
+    .terminal-dot.red { background: hsl(0 84% 60%); }
+    .terminal-dot.yellow { background: hsl(48 96% 53%); }
+    .terminal-dot.green { background: hsl(142 76% 36%); }
+
+    .session-name {
+      font-family: 'JetBrains Mono', monospace;
+      font-weight: 500;
+      font-size: 0.875rem;
+      color: var(--foreground);
+    }
+
+    .session-status {
+      display: flex;
+      align-items: center;
+      gap: 0.375rem;
+      padding: 0.25rem 0.625rem;
+      border-radius: 9999px;
+      font-size: 0.75rem;
+      font-weight: 500;
+    }
+
+    .session-status.working {
+      background: hsla(142, 76%, 36%, 0.15);
+      color: hsl(142 76% 46%);
+    }
+
+    .session-status.waiting_approval {
+      background: hsla(48, 96%, 53%, 0.15);
+      color: hsl(48 96% 53%);
+      animation: statusPulse 1.5s infinite;
+    }
+
+    @keyframes statusPulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.7; }
+    }
+
+    .session-status.idle {
+      background: hsla(217, 91%, 60%, 0.15);
+      color: hsl(217 91% 70%);
+    }
+
+    .session-status.error {
+      background: hsla(0, 84%, 60%, 0.15);
+      color: hsl(0 84% 60%);
+    }
+
+    .terminal-content {
+      background: hsl(220 13% 6%);
+      padding: 1rem;
+      height: 350px;
+      overflow-y: auto;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.8rem;
+      line-height: 1.5;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+
+    .terminal-content::-webkit-scrollbar {
+      width: 6px;
+    }
+
+    .terminal-content::-webkit-scrollbar-track {
+      background: transparent;
+    }
+
+    .terminal-content::-webkit-scrollbar-thumb {
+      background: var(--border);
+      border-radius: 3px;
+    }
+
+    .terminal-content::-webkit-scrollbar-thumb:hover {
+      background: var(--muted-foreground);
+    }
+
+    /* Controls section */
+    .terminal-controls {
+      padding: 0.75rem;
+      background: var(--secondary);
+      border-top: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+
+    .input-row {
+      display: flex;
+      gap: 0.5rem;
+    }
+
+    .command-input {
+      flex: 1;
+      padding: 0.5rem 0.75rem;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: var(--background);
+      color: var(--foreground);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.875rem;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+
+    .command-input:focus {
+      border-color: var(--accent-blue);
+    }
+
+    .command-input::placeholder {
+      color: var(--muted-foreground);
+    }
+
+    .send-btn {
+      padding: 0.5rem 1rem;
+      border: none;
+      border-radius: var(--radius);
+      background: var(--accent-blue);
+      color: white;
+      font-size: 0.875rem;
+      font-weight: 500;
+      cursor: pointer;
+      transition: opacity 0.2s;
+    }
+
+    .send-btn:hover {
+      opacity: 0.9;
+    }
+
+    .approval-buttons {
+      display: none;
+      gap: 0.5rem;
+    }
+
+    .terminal-card.waiting .approval-buttons {
+      display: flex;
+    }
+
+    .approval-btn {
+      flex: 1;
+      padding: 0.5rem 0.75rem;
+      border: none;
+      border-radius: var(--radius);
+      font-size: 0.8rem;
+      font-weight: 500;
+      cursor: pointer;
+      transition: opacity 0.2s;
+    }
+
+    .approval-btn:hover {
+      opacity: 0.9;
+    }
+
+    .approval-btn.approve {
+      background: var(--accent-green);
+      color: white;
+    }
+
+    .approval-btn.always {
+      background: var(--accent-blue);
+      color: white;
+    }
+
+    .approval-btn.deny {
+      background: var(--accent-red);
+      color: white;
+    }
+
+    /* Empty state */
+    .empty-state {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 50vh;
+      text-align: center;
+      color: var(--muted-foreground);
+    }
+
+    .empty-icon {
+      font-size: 3rem;
+      margin-bottom: 1rem;
+      opacity: 0.5;
+    }
+
+    .empty-title {
+      font-size: 1.125rem;
+      font-weight: 500;
+      color: var(--foreground);
+      margin-bottom: 0.5rem;
+    }
+
+    .empty-subtitle {
+      font-size: 0.875rem;
+    }
+
+    /* Connection status */
+    .connection-status {
+      position: fixed;
+      bottom: 1rem;
+      right: 1rem;
+      padding: 0.5rem 0.875rem;
+      border-radius: var(--radius);
+      font-size: 0.75rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      border: 1px solid var(--border);
+      background: var(--card);
+    }
+
+    .connection-status.connected {
+      border-color: var(--accent-green);
+    }
+
+    .connection-status.connected .status-dot {
+      background: var(--accent-green);
+    }
+
+    .connection-status.disconnected {
+      border-color: var(--accent-red);
+    }
+
+    .connection-status.disconnected .status-dot {
+      background: var(--accent-red);
+    }
+
+    /* Auth error page */
+    .auth-error {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      flex-direction: column;
+      color: var(--accent-red);
+      font-family: 'Inter', sans-serif;
+    }
+
+    .auth-error h1 {
+      font-size: 1.5rem;
+      margin-bottom: 0.5rem;
+    }
+
+    .auth-error p {
+      color: var(--muted-foreground);
+      font-size: 0.875rem;
+    }
+
+    .auth-error code {
+      background: var(--secondary);
+      padding: 0.125rem 0.375rem;
+      border-radius: 4px;
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    /* Responsive */
+    @media (max-width: 768px) {
+      .sessions-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .terminal-content {
+        height: 280px;
+      }
+
+      header {
+        padding: 0.75rem 1rem;
+      }
+
+      .logo h1 {
+        font-size: 1rem;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="logo">
+      <div class="logo-icon">⚡</div>
+      <h1>Nebo Dev Ops</h1>
+    </div>
+    <div class="status-bar">
+      <div class="status-item">
+        <div class="status-dot connected"></div>
+        <span>Live</span>
+      </div>
+      <div class="status-item">
+        <span>Sessions:</span>
+        <span class="session-count" id="sessionCount">0</span>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <div class="sessions-grid" id="sessionsGrid">
+      <div class="empty-state" id="emptyState">
+        <div class="empty-icon">📡</div>
+        <h2 class="empty-title">No Active Sessions</h2>
+        <p class="empty-subtitle">Waiting for Claude Code sessions to connect...</p>
+      </div>
+    </div>
+  </main>
+
+  <div class="connection-status" id="connectionStatus">
+    <div class="status-dot"></div>
+    <span>Connecting...</span>
+  </div>
+
+  <script>
+    // Get token from URL query parameter
+    const urlParams = new URLSearchParams(window.location.search);
+    const token = urlParams.get('token');
+
+    if (!token) {
+      document.body.innerHTML = `
+        <div class="auth-error">
+          <h1>🔒 Authentication Required</h1>
+          <p>Add <code>?token=YOUR_TOKEN</code> to the URL</p>
+        </div>
+      `;
+      throw new Error('Token required');
+    }
+
+    // Connect with token authentication
+    const socket = io({
+      auth: { token },
+      query: { token }
+    });
+
+    const sessionsGrid = document.getElementById('sessionsGrid');
+    const sessionCount = document.getElementById('sessionCount');
+    const emptyState = document.getElementById('emptyState');
+    const connectionStatus = document.getElementById('connectionStatus');
+
+    const sessions = new Map();
+
+    // ANSI to HTML converter
+    function ansiToHtml(text) {
+      return text
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/\x1b\[0m/g, '</span>')
+        .replace(/\x1b\[1m/g, '<span style="font-weight:bold">')
+        .replace(/\x1b\[2m/g, '<span style="opacity:0.7">')
+        .replace(/\x1b\[3m/g, '<span style="font-style:italic">')
+        .replace(/\x1b\[4m/g, '<span style="text-decoration:underline">')
+        .replace(/\x1b\[30m/g, '<span style="color:#000">')
+        .replace(/\x1b\[31m/g, '<span style="color:#ff6b6b">')
+        .replace(/\x1b\[32m/g, '<span style="color:#51cf66">')
+        .replace(/\x1b\[33m/g, '<span style="color:#fcc419">')
+        .replace(/\x1b\[34m/g, '<span style="color:#748ffc">')
+        .replace(/\x1b\[35m/g, '<span style="color:#cc5de8">')
+        .replace(/\x1b\[36m/g, '<span style="color:#22b8cf">')
+        .replace(/\x1b\[37m/g, '<span style="color:#f8f9fa">')
+        .replace(/\x1b\[90m/g, '<span style="color:#868e96">')
+        .replace(/\x1b\[91m/g, '<span style="color:#ff8787">')
+        .replace(/\x1b\[92m/g, '<span style="color:#69db7c">')
+        .replace(/\x1b\[93m/g, '<span style="color:#ffd43b">')
+        .replace(/\x1b\[94m/g, '<span style="color:#91a7ff">')
+        .replace(/\x1b\[95m/g, '<span style="color:#e599f7">')
+        .replace(/\x1b\[96m/g, '<span style="color:#66d9e8">')
+        .replace(/\x1b\[97m/g, '<span style="color:#fff">')
+        .replace(/\x1b\[\d+(?:;\d+)*m/g, '');
+    }
+
+    function getStatusClass(status) {
+      const statusMap = {
+        'working': 'working',
+        'idle': 'idle',
+        'waiting_approval': 'waiting_approval',
+        'error': 'error'
+      };
+      return statusMap[status] || 'idle';
+    }
+
+    function getStatusLabel(status) {
+      const labelMap = {
+        'working': '⚡ Working',
+        'idle': '● Idle',
+        'waiting_approval': '⏳ Awaiting',
+        'error': '✕ Error'
+      };
+      return labelMap[status] || status;
+    }
+
+    function createTerminalCard(session) {
+      const card = document.createElement('div');
+      card.className = 'terminal-card';
+      card.id = `session-${session.name}`;
+      card.innerHTML = `
+        <div class="terminal-header">
+          <div class="terminal-title">
+            <div class="terminal-dots">
+              <div class="terminal-dot red"></div>
+              <div class="terminal-dot yellow"></div>
+              <div class="terminal-dot green"></div>
+            </div>
+            <span class="session-name">${session.name}</span>
+          </div>
+          <div class="session-status idle" id="status-${session.name}">
+            ● Idle
+          </div>
+        </div>
+        <div class="terminal-content" id="content-${session.name}">
+          <span style="color: #868e96">Connecting to session...</span>
+        </div>
+        <div class="terminal-controls">
+          <div class="input-row">
+            <input type="text" class="command-input" id="input-${session.name}"
+                   placeholder="Type command (1=approve, 2=always, 3=deny, or text)..."
+                   onkeypress="handleInputKeypress(event, '${session.name}')" />
+            <button class="send-btn" onclick="sendCommand('${session.name}')">Send</button>
+          </div>
+          <div class="approval-buttons" id="approval-${session.name}">
+            <button class="approval-btn approve" onclick="handleApproval('${session.name}', 'approve')">1. Approve</button>
+            <button class="approval-btn always" onclick="handleApproval('${session.name}', 'always')">2. Always</button>
+            <button class="approval-btn deny" onclick="handleApproval('${session.name}', 'deny')">3. Deny</button>
+          </div>
+        </div>
+      `;
+
+      return card;
+    }
+
+    function handleInputKeypress(event, sessionName) {
+      if (event.key === 'Enter') {
+        sendCommand(sessionName);
+      }
+    }
+
+    function sendCommand(sessionName) {
+      const input = document.getElementById(`input-${sessionName}`);
+      const value = input.value.trim();
+
+      if (!value) return;
+
+      // Check for approval shortcuts
+      if (value === '1' || value.toLowerCase() === 'approve' || value.toLowerCase() === 'yes' || value.toLowerCase() === 'y') {
+        handleApproval(sessionName, 'approve');
+      } else if (value === '2' || value.toLowerCase() === 'always' || value.toLowerCase() === 'all') {
+        handleApproval(sessionName, 'always');
+      } else if (value === '3' || value.toLowerCase() === 'deny' || value.toLowerCase() === 'no' || value.toLowerCase() === 'n') {
+        handleApproval(sessionName, 'deny');
+      } else {
+        // Send as raw text to session
+        socket.emit('session:send', { name: sessionName, text: value });
+      }
+
+      input.value = '';
+    }
+
+    function handleApproval(sessionName, action) {
+      console.log(`Sending ${action} to ${sessionName}`);
+      socket.emit('session:approve', { name: sessionName, action });
+    }
+
+    function updateSessionCount() {
+      sessionCount.textContent = sessions.size;
+      if (sessions.size === 0) {
+        emptyState.style.display = 'flex';
+      } else {
+        emptyState.style.display = 'none';
+      }
+    }
+
+    // Socket event handlers
+    socket.on('connect', () => {
+      console.log('Connected to server');
+      connectionStatus.className = 'connection-status connected';
+      connectionStatus.innerHTML = '<div class="status-dot"></div><span>Connected</span>';
+    });
+
+    socket.on('disconnect', () => {
+      console.log('Disconnected from server');
+      connectionStatus.className = 'connection-status disconnected';
+      connectionStatus.innerHTML = '<div class="status-dot"></div><span>Disconnected</span>';
+    });
+
+    socket.on('connect_error', (err) => {
+      console.error('Connection error:', err.message);
+      if (err.message.includes('token') || err.message.includes('Authentication')) {
+        document.body.innerHTML = `
+          <div class="auth-error">
+            <h1>🔒 Authentication Failed</h1>
+            <p>${err.message}</p>
+            <p style="margin-top: 0.5rem;">Check your token and try again</p>
+          </div>
+        `;
+      }
+    });
+
+    socket.on('session:add', (session) => {
+      console.log('Session added:', session.name);
+      if (!sessions.has(session.name)) {
+        sessions.set(session.name, session);
+        const card = createTerminalCard(session);
+        sessionsGrid.appendChild(card);
+        updateSessionCount();
+      }
+    });
+
+    socket.on('session:remove', (data) => {
+      console.log('Session removed:', data.name);
+      sessions.delete(data.name);
+      const card = document.getElementById(`session-${data.name}`);
+      if (card) {
+        card.style.opacity = '0';
+        card.style.transform = 'scale(0.95)';
+        card.style.transition = 'all 0.2s';
+        setTimeout(() => card.remove(), 200);
+      }
+      updateSessionCount();
+    });
+
+    socket.on('session:update', (data) => {
+      const content = document.getElementById(`content-${data.name}`);
+      const status = document.getElementById(`status-${data.name}`);
+      const card = document.getElementById(`session-${data.name}`);
+
+      if (content) {
+        const wasNearBottom = content.scrollHeight - content.scrollTop - content.clientHeight < 50;
+        content.innerHTML = ansiToHtml(data.content);
+        if (wasNearBottom) {
+          content.scrollTop = content.scrollHeight;
+        }
+      }
+
+      if (status) {
+        const statusClass = getStatusClass(data.status);
+        status.className = `session-status ${statusClass}`;
+        status.textContent = getStatusLabel(data.status);
+      }
+
+      if (card) {
+        if (data.status === 'waiting_approval') {
+          card.classList.add('waiting');
+        } else {
+          card.classList.remove('waiting');
+        }
+      }
+    });
+
+    socket.on('approval:result', (data) => {
+      if (data.success) {
+        console.log(`Approval ${data.action} successful for ${data.name}`);
+        const card = document.getElementById(`session-${data.name}`);
+        if (card) {
+          card.style.borderColor = 'var(--accent-green)';
+          setTimeout(() => {
+            card.style.borderColor = '';
+          }, 1000);
+        }
+      } else {
+        console.error(`Approval failed for ${data.name}:`, data.error);
+      }
+    });
+
+    socket.on('send:result', (data) => {
+      if (!data.success) {
+        console.error(`Send failed for ${data.name}:`, data.error);
+      }
+    });
+  </script>
+</body>
+</html>

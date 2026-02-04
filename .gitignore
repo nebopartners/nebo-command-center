@@ -1,0 +1,17 @@
+# Logs
+*.log
+
+# Temp files
+tmp/
+*.tmp
+
+# API keys / secrets
+.env
+secrets/
+
+# Node.js
+node_modules/
+package-lock.json
+
+# OS
+.DS_Store

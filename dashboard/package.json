@@ -1,0 +1,16 @@
+{
+  "name": "nebo-devops-dashboard",
+  "version": "1.0.0",
+  "description": "Real-time dashboard for monitoring AI coding agent sessions",
+  "main": "tmux-dashboard.js",
+  "scripts": {
+    "start": "node tmux-dashboard.js"
+  },
+  "keywords": ["claude-code", "codex", "monitoring", "dashboard"],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^5.2.1",
+    "socket.io": "^4.8.3"
+  }
+}
