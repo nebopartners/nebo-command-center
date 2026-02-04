@@ -2,7 +2,7 @@
 
 **Network of Error-fixing Bots and Operations**
 
-Automated Claude Code and Codex session management with multi-channel notifications for Discord, Telegram, and WhatsApp.
+Automated Claude Code and Codex session management with multi-channel notifications for **Discord**, Telegram, and WhatsApp.
 
 ---
 
@@ -26,6 +26,37 @@ Automated Claude Code and Codex session management with multi-channel notificati
 - Auto-detects approval prompts
 - Web dashboard for oversight
 - tmux-based session isolation
+
+---
+
+## Getting Started with Discord
+
+**Primary use case:** Discord bot commands trigger Claude Code sessions with notifications routed back to Discord.
+
+**What you need:**
+1. ✅ OpenClaw/Clawdbot running with Discord channel configured
+2. ✅ Claude Code CLI installed (`claude` command available)
+3. ✅ This repository cloned and scripts executable
+4. ✅ Webhook token configured in OpenClaw
+
+**Flow:**
+```
+Discord User: /plan new-feature
+     ↓
+OpenClaw Bot → NEBO start-session.sh
+     ↓
+Claude Code launches in tmux session
+     ↓
+Monitor daemon watches for approval prompts
+     ↓
+Notification sent to Discord: "🚦 Needs approval..."
+     ↓
+User responds: "approve claude-1234567890"
+     ↓
+Claude Code continues execution
+```
+
+**See full setup instructions below.** ⬇️
 
 ---
 
@@ -90,14 +121,116 @@ cp -r skills/* ~/path/to/your/openclaw/workspace/skills/
 ln -s $(pwd)/skills/* ~/path/to/your/openclaw/workspace/skills/
 ```
 
-### 5. Test It
+### 5. Configure Discord (Primary Channel)
 
-From Discord/Telegram/WhatsApp (via OpenClaw):
+**In Discord:**
+1. Get your OpenClaw bot running and connected to Discord
+2. Note your Discord channel ID (enable Developer Mode → right-click channel → Copy ID)
+
+**In OpenClaw config (`~/.openclaw/openclaw.json`):**
+```json
+{
+  "hooks": {
+    "enabled": true,
+    "token": "YOUR_SECURE_TOKEN_HERE"
+  },
+  "channels": {
+    "discord": {
+      "token": "YOUR_DISCORD_BOT_TOKEN",
+      "defaultChannel": "YOUR_CHANNEL_ID"
+    }
+  }
+}
+```
+
+**Verify webhook is working:**
+```bash
+TOKEN=$(jq -r '.hooks.token' ~/.openclaw/openclaw.json)
+CHANNEL_ID="YOUR_CHANNEL_ID"
+
+curl -X POST http://127.0.0.1:18789/hooks/agent \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "{\"message\":\"✅ NEBO webhook test\",\"deliver\":true,\"channel\":\"discord\",\"to\":\"channel:$CHANNEL_ID\"}"
+```
+
+You should see the test message appear in Discord.
+
+### 6. Setup Dashboard (Optional but Recommended)
+
+The web dashboard provides real-time monitoring and quick approval actions.
+
+**Install dashboard dependencies:**
+```bash
+cd dashboard
+npm install
+```
+
+**Start the dashboard:**
+```bash
+# Uses the same token from ~/.openclaw/openclaw.json
+node tmux-dashboard.js
+```
+
+**Access locally:**
+```bash
+TOKEN=$(jq -r '.hooks.token' ~/.openclaw/openclaw.json)
+echo "Dashboard: http://localhost:3333/?token=$TOKEN"
+```
+
+**Setup Cloudflare Tunnel (Production):**
+
+See [Dashboard Setup Guide](dashboard/README.md#cloudflare-tunnel-setup) for detailed instructions on:
+- Installing `cloudflared`
+- Creating a tunnel
+- Configuring DNS
+- Setting up Cloudflare Access for additional security
+
+**Quick Cloudflare Tunnel Setup:**
+```bash
+# Install cloudflared
+# See: https://developers.cloudflare.com/cloudflare-one/connections/connect-apps/install-and-setup/installation/
+
+# Authenticate
+cloudflared tunnel login
+
+# Create tunnel
+cloudflared tunnel create nebo-dashboard
+
+# Configure tunnel (edit config.yml)
+cat > ~/.cloudflared/config.yml << EOF
+tunnel: <tunnel-id>
+credentials-file: /home/matt/.cloudflared/<tunnel-id>.json
+
+ingress:
+  - hostname: your-subdomain.yourdomain.com
+    service: http://localhost:3333
+  - service: http_status:404
+EOF
+
+# Add DNS record
+cloudflared tunnel route dns nebo-dashboard your-subdomain.yourdomain.com
+
+# Run tunnel
+cloudflared tunnel run nebo-dashboard
+```
+
+**Access your dashboard:**
+```
+https://your-subdomain.yourdomain.com/?token=YOUR_TOKEN
+```
+
+### 7. Test It
+
+From Discord (via OpenClaw bot):
 ```
 /plan test-feature
 ```
 
-You should receive a notification asking for approval.
+You should receive a notification in Discord asking for approval.
+
+**Or from Telegram/WhatsApp:**
+Commands work the same way from any channel where OpenClaw is configured.
 
 ---
 
@@ -124,7 +257,7 @@ You should receive a notification asking for approval.
 ## Architecture
 
 ```
-User (Discord/Telegram/WhatsApp)
+User (Discord / Telegram / WhatsApp)
          │
          │ Invokes /plan, /implement, etc.
          │
@@ -132,9 +265,10 @@ User (Discord/Telegram/WhatsApp)
     OpenClaw/Clawdbot
          │
          │ Extracts channel context
+         │ Example: discord:channel:1466888482793459813
          │
          ▼
-  start-session.sh --workdir DIR --channel "discord:channel:123" --prompt "/plan topic"
+  start-session.sh --workdir DIR --channel "discord:channel:1466888482793459813" --prompt "/plan topic"
          │
          ├──► Registers session → channel mapping
          │
@@ -184,19 +318,27 @@ Files to update:
 
 ### Enable Dashboard (Optional)
 
+The web dashboard provides real-time monitoring of all Claude Code and Codex sessions.
+
+**See detailed setup guide:** [dashboard/README.md](dashboard/README.md)
+
+**Quick start:**
 ```bash
 cd dashboard
 npm install
 
-# Set dashboard token
-export DASHBOARD_TOKEN="your-secure-token"
-
-# Start dashboard
+# Dashboard automatically reads token from ~/.openclaw/openclaw.json
 node tmux-dashboard.js
 
-# Access at:
-# http://localhost:3333/?token=YOUR_DASHBOARD_TOKEN
+# Access locally:
+TOKEN=$(jq -r '.hooks.token' ~/.openclaw/openclaw.json)
+echo "Dashboard: http://localhost:3333/?token=$TOKEN"
 ```
+
+**Production setup with Cloudflare Tunnel:**
+- Provides secure HTTPS access without exposing ports
+- Adds optional email/SSO authentication via Cloudflare Access
+- Full instructions in [dashboard/README.md](dashboard/README.md)
 
 ---
 
@@ -231,19 +373,42 @@ See `docs/security-audit-2026-02-04.md` for comprehensive security audit.
 
 ### No Notifications Received
 
+**Step 1: Check OpenClaw webhook configured**
 ```bash
-# Check webhook configured
 jq '.hooks' ~/.openclaw/openclaw.json
+# Should show: {"enabled": true, "token": "..."}
+```
 
-# Check monitor running
+**Step 2: Check Discord channel configured**
+```bash
+jq '.channels.discord' ~/.openclaw/openclaw.json
+# Should show your Discord bot token and channel info
+```
+
+**Step 3: Check monitor running**
+```bash
 ps aux | grep nebo-monitor
+# Should show running process
+```
 
-# Test webhook manually
+**Step 4: Test webhook manually (Discord)**
+```bash
 TOKEN=$(jq -r '.hooks.token' ~/.openclaw/openclaw.json)
+CHANNEL_ID="1466888482793459813"  # Replace with your channel ID
+
 curl -X POST http://127.0.0.1:18789/hooks/agent \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"message":"test","deliver":true,"channel":"discord","to":"channel:YOUR_CHANNEL_ID"}'
+  -d "{\"message\":\"✅ NEBO test notification\",\"deliver\":true,\"channel\":\"discord\",\"to\":\"channel:$CHANNEL_ID\"}"
+```
+
+**Expected:** Message appears in Discord channel  
+**If not:** Check OpenClaw logs: `journalctl -u openclaw-gateway -f`
+
+**Step 5: Check session registry**
+```bash
+cat /tmp/nebo-orchestrator/channel-registry.json | jq .
+# Should show your session → channel mapping
 ```
 
 ### Sessions Not Starting
