@@ -105,7 +105,9 @@ ESCAPED_MESSAGE=$(echo "$MESSAGE" | jq -Rs .)
 
 echo "Sending notification via $CHANNEL to $TO..." >&2
 
-curl -s -X POST "$WEBHOOK_URL" \
+# Send notification with error detection
+# Use -f to fail on HTTP errors, -s for silent, -S to show errors
+if curl -fsS -X POST "$WEBHOOK_URL" \
   -H "Authorization: Bearer $WEBHOOK_TOKEN" \
   -H "Content-Type: application/json" \
   -d "{
@@ -114,4 +116,11 @@ curl -s -X POST "$WEBHOOK_URL" \
     \"deliver\": true,
     \"channel\": \"$CHANNEL\",
     \"to\": \"$TO\"
-  }"
+  }" 2>&1; then
+  echo "✓ Notification sent successfully" >&2
+  exit 0
+else
+  EXIT_CODE=$?
+  echo "✗ Notification failed with exit code $EXIT_CODE" >&2
+  exit $EXIT_CODE
+fi
